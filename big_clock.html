@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Big Clock</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<style>
+:root {
+  --bg: #F4F1EC;
+  --fg: #1B1B1F;
+  --muted: #55555C;
+  --btn: #E2DDD5;
+  box-sizing: border-box;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #000000;
+    --fg: #F2F2F2;
+    --muted: #B5B5BC;
+    --btn: #26262B;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #000000;
+  --fg: #F2F2F2;
+  --muted: #B5B5BC;
+  --btn: #26262B;
+}
+html { scroll-padding-top: env(safe-area-inset-top, 0px); height: 100%; }
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-text-size-adjust: 100%;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.wrap {
+  height: 100%;
+  display: -webkit-flex;
+  display: flex;
+  -webkit-flex-direction: column;
+  flex-direction: column;
+  -webkit-justify-content: center;
+  justify-content: center;
+  -webkit-align-items: center;
+  align-items: center;
+  text-align: center;
+}
+.main { width: 96%; }
+#time, #probe {
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-font-feature-settings: "tnum";
+  font-feature-settings: "tnum";
+  font-variant-numeric: tabular-nums;
+}
+#probe {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  font-size: 100px;
+}
+#ampm { font-size: 0.3em; margin-left: 0.15em; color: var(--muted); font-weight: 500; }
+#date { color: var(--muted); margin-top: 0.4em; font-size: 20px; }
+.bar { padding: 14px 0 18px; }
+.bar button {
+  font-size: 16px;
+  color: var(--fg);
+  background: var(--btn);
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin: 0 5px;
+  min-height: 44px;
+  font-family: inherit;
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="main">
+    <div id="time"></div>
+    <div id="date"></div>
+  </div>
+  <div class="bar">
+    <button id="bFmt" type="button">12 / 24 h</button>
+    <button id="bSec" type="button">Seconds</button>
+    <button id="bTheme" type="button">Light / Dark</button>
+    <button id="bChime" type="button">Chime: Off</button>
+  </div>
+</div>
+<span id="probe"></span>
+<script>
+(function () {
+  var cfg = { h24: false, sec: true, theme: "", chime: false };
+  try {
+    var saved = localStorage.getItem("bigclock");
+    if (saved) { var p = JSON.parse(saved); cfg.h24 = !!p.h24; cfg.sec = p.sec !== false; cfg.theme = p.theme || ""; cfg.chime = !!p.chime; }
+  } catch (e) {}
+  function save() { try { localStorage.setItem("bigclock", JSON.stringify(cfg)); } catch (e) {} }
+
+  // ---- Hourly chime (muted 23:00-06:59) ----
+  var audioCtx = null, lastChimeKey = null;
+  var QUIET_START = 23, QUIET_END = 7;
+  function isQuiet(h) { return h >= QUIET_START || h < QUIET_END; }
+
+  // Grandfather-clock strike: low bell with inharmonic partials and a long decay
+  function playBell(freq, delay, dur) {
+    var t = audioCtx.currentTime + delay;
+    var master = audioCtx.createGain();
+    master.gain.value = 0.3;
+    master.connect(audioCtx.destination);
+    // [frequency ratio, level, decay factor]
+    var partials = [[1, 1, 1], [2.0, 0.5, 0.7], [2.76, 0.35, 0.5], [4.07, 0.2, 0.35], [5.4, 0.12, 0.25]];
+    partials.forEach(function (p) {
+      var osc = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      var d = dur * p[2];
+      osc.type = "sine";
+      osc.frequency.value = freq * p[0];
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(p[1], t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      osc.connect(g); g.connect(master);
+      osc.start(t); osc.stop(t + d + 0.05);
+    });
+  }
+
+  function checkChime(d) {
+    if (!cfg.chime || !audioCtx || d.getMinutes() !== 0) return;
+    var h = d.getHours();
+    var key = d.toDateString() + "-" + h;
+    if (key === lastChimeKey) return;
+    lastChimeKey = key;
+    if (isQuiet(h)) return;
+    var strikes = h % 12 || 12;
+    for (var i = 0; i < strikes; i++) { playBell(220, i * 2.2, 3.5); }
+  }
+
+  function updateChimeBtn() {
+    var b = document.getElementById("bChime");
+    if (!cfg.chime) { b.textContent = "Chime: Off"; }
+    else if (!audioCtx) { b.textContent = "Chime: Tap to enable"; }
+    else { b.textContent = "Chime: On"; }
+  }
+
+  document.getElementById("bChime").onclick = function () {
+    if (cfg.chime && audioCtx) { cfg.chime = false; }
+    else {
+      cfg.chime = true;
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx.resume();
+      playBell(220, 0, 3.5);
+    }
+    save(); updateChimeBtn();
+  };
+
+  // Test buttons: only shown when the URL contains ?test
+  if (location.search.indexOf("test") !== -1) {
+    var bar = document.querySelector(".bar");
+    [[15, "Test 3 pm"], [12, "Test 12"], [23, "Test 11 pm (silent)"], [7, "Test 7 am"]].forEach(function (x) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = x[1];
+      b.onclick = function () {
+        if (!cfg.chime || !audioCtx) { alert("Turn Chime on first."); return; }
+        lastChimeKey = null;
+        checkChime(new Date(2026, 0, 1, x[0], 0, 0));
+      };
+      bar.appendChild(b);
+    });
+  }
+  // ---- end chime ----
+
+  function applyTheme() {
+    if (cfg.theme) { document.documentElement.setAttribute("data-theme", cfg.theme); }
+    else { document.documentElement.removeAttribute("data-theme"); }
+  }
+
+  var elTime = document.getElementById("time");
+  var elDate = document.getElementById("date");
+  var elProbe = document.getElementById("probe");
+  var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+
+  function pad(n) { return n < 10 ? "0" + n : "" + n; }
+
+  function fit() {
+    elProbe.textContent = cfg.sec ? "88:88:88" : "88:88";
+    var w = elProbe.offsetWidth || 1;
+    var availW = window.innerWidth * 0.94 - (cfg.h24 ? 0 : window.innerWidth * 0.0);
+    var size = 100 * availW / w;
+    if (!cfg.h24) { size = size * 0.8; }
+    var maxH = window.innerHeight * 0.55;
+    if (size > maxH) { size = maxH; }
+    elTime.style.fontSize = size + "px";
+    elDate.style.fontSize = Math.max(18, Math.min(size * 0.2, 44)) + "px";
+  }
+
+  function tick() {
+    var d = new Date();
+    var h = d.getHours();
+    var suffix = "";
+    if (!cfg.h24) {
+      suffix = h >= 12 ? "PM" : "AM";
+      h = h % 12;
+      if (h === 0) { h = 12; }
+    } else {
+      h = pad(h);
+    }
+    var t = h + ":" + pad(d.getMinutes()) + (cfg.sec ? ":" + pad(d.getSeconds()) : "");
+    elTime.innerHTML = t + (suffix ? '<span id="ampm">' + suffix + "</span>" : "");
+    elDate.textContent = DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+    checkChime(d);
+  }
+
+  document.getElementById("bFmt").onclick = function () { cfg.h24 = !cfg.h24; save(); fit(); tick(); };
+  document.getElementById("bSec").onclick = function () { cfg.sec = !cfg.sec; save(); fit(); tick(); };
+  document.getElementById("bTheme").onclick = function () {
+    var isDark = document.documentElement.getAttribute("data-theme") === "dark" ||
+      (!document.documentElement.getAttribute("data-theme") && window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+    cfg.theme = isDark ? "light" : "dark";
+    applyTheme(); save();
+  };
+
+  window.addEventListener("resize", function () { fit(); });
+  window.addEventListener("orientationchange", function () { setTimeout(fit, 300); });
+
+  applyTheme();
+  updateChimeBtn();
+  fit();
+  tick();
+  setInterval(tick, 500);
+})();
+</script>
+</body>
+</html>

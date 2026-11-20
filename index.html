@@ -95,17 +95,91 @@ body {
     <button id="bFmt" type="button">12 / 24 h</button>
     <button id="bSec" type="button">Seconds</button>
     <button id="bTheme" type="button">Light / Dark</button>
+    <button id="bChime" type="button">Chime: Off</button>
   </div>
 </div>
 <span id="probe"></span>
 <script>
 (function () {
-  var cfg = { h24: false, sec: true, theme: "" };
+  var cfg = { h24: false, sec: true, theme: "", chime: false };
   try {
     var saved = localStorage.getItem("bigclock");
-    if (saved) { var p = JSON.parse(saved); cfg.h24 = !!p.h24; cfg.sec = p.sec !== false; cfg.theme = p.theme || ""; }
+    if (saved) { var p = JSON.parse(saved); cfg.h24 = !!p.h24; cfg.sec = p.sec !== false; cfg.theme = p.theme || ""; cfg.chime = !!p.chime; }
   } catch (e) {}
   function save() { try { localStorage.setItem("bigclock", JSON.stringify(cfg)); } catch (e) {} }
+
+  // ---- Hourly chime (muted 23:00-06:59) ----
+  var audioCtx = null, lastChimeKey = null;
+  var QUIET_START = 23, QUIET_END = 7;
+  function isQuiet(h) { return h >= QUIET_START || h < QUIET_END; }
+
+  // Grandfather-clock strike: low bell with inharmonic partials and a long decay
+  function playBell(freq, delay, dur) {
+    var t = audioCtx.currentTime + delay;
+    var master = audioCtx.createGain();
+    master.gain.value = 0.3;
+    master.connect(audioCtx.destination);
+    // [frequency ratio, level, decay factor]
+    var partials = [[1, 1, 1], [2.0, 0.5, 0.7], [2.76, 0.35, 0.5], [4.07, 0.2, 0.35], [5.4, 0.12, 0.25]];
+    partials.forEach(function (p) {
+      var osc = audioCtx.createOscillator();
+      var g = audioCtx.createGain();
+      var d = dur * p[2];
+      osc.type = "sine";
+      osc.frequency.value = freq * p[0];
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(p[1], t + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      osc.connect(g); g.connect(master);
+      osc.start(t); osc.stop(t + d + 0.05);
+    });
+  }
+
+  function checkChime(d) {
+    if (!cfg.chime || !audioCtx || d.getMinutes() !== 0) return;
+    var h = d.getHours();
+    var key = d.toDateString() + "-" + h;
+    if (key === lastChimeKey) return;
+    lastChimeKey = key;
+    if (isQuiet(h)) return;
+    var strikes = h % 12 || 12;
+    for (var i = 0; i < strikes; i++) { playBell(220, i * 2.2, 3.5); }
+  }
+
+  function updateChimeBtn() {
+    var b = document.getElementById("bChime");
+    if (!cfg.chime) { b.textContent = "Chime: Off"; }
+    else if (!audioCtx) { b.textContent = "Chime: Tap to enable"; }
+    else { b.textContent = "Chime: On"; }
+  }
+
+  document.getElementById("bChime").onclick = function () {
+    if (cfg.chime && audioCtx) { cfg.chime = false; }
+    else {
+      cfg.chime = true;
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      audioCtx.resume();
+      playBell(220, 0, 3.5);
+    }
+    save(); updateChimeBtn();
+  };
+
+  // Test buttons: only shown when the URL contains ?test
+  if (location.search.indexOf("test") !== -1) {
+    var bar = document.querySelector(".bar");
+    [[15, "Test 3 pm"], [12, "Test 12"], [23, "Test 11 pm (silent)"], [7, "Test 7 am"]].forEach(function (x) {
+      var b = document.createElement("button");
+      b.type = "button"; b.textContent = x[1];
+      b.onclick = function () {
+        if (!cfg.chime || !audioCtx) { alert("Turn Chime on first."); return; }
+        lastChimeKey = null;
+        checkChime(new Date(2026, 0, 1, x[0], 0, 0));
+      };
+      bar.appendChild(b);
+    });
+  }
+  // ---- end chime ----
+
   function applyTheme() {
     if (cfg.theme) { document.documentElement.setAttribute("data-theme", cfg.theme); }
     else { document.documentElement.removeAttribute("data-theme"); }
@@ -145,6 +219,7 @@ body {
     var t = h + ":" + pad(d.getMinutes()) + (cfg.sec ? ":" + pad(d.getSeconds()) : "");
     elTime.innerHTML = t + (suffix ? '<span id="ampm">' + suffix + "</span>" : "");
     elDate.textContent = DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+    checkChime(d);
   }
 
   document.getElementById("bFmt").onclick = function () { cfg.h24 = !cfg.h24; save(); fit(); tick(); };
@@ -160,6 +235,7 @@ body {
   window.addEventListener("orientationchange", function () { setTimeout(fit, 300); });
 
   applyTheme();
+  updateChimeBtn();
   fit();
   tick();
   setInterval(tick, 500);
