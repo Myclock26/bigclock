@@ -201,7 +201,7 @@ body {
   var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var elDProbe = document.getElementById("dprobe");
-  function dateText(d) { return DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); }
+  function dateText(d) { return DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + pad(d.getFullYear() % 100); }
 
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
 
@@ -214,11 +214,11 @@ body {
     var maxH = window.innerHeight * 0.55;
     if (size > maxH) { size = maxH; }
     elTime.style.fontSize = size + "px";
-    // Date size = 70% of the clock font size, but never wider than the screen
-    elDProbe.textContent = "Wed, 30 Sep 2026";
+    // Date size = 80.5% of the clock font size, but never wider than the screen
+    elDProbe.textContent = "Wed, 30 Sep 26";
     var dw = elDProbe.offsetWidth || 1;
     var maxDateW = window.innerWidth * 0.94;
-    var dsize = Math.min(size * 0.7, 100 * maxDateW / dw);
+    var dsize = Math.min(size * 0.805, 100 * maxDateW / dw);
     elDate.style.fontSize = Math.max(14, dsize) + "px";
   }
 
