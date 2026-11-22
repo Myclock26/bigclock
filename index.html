@@ -69,6 +69,15 @@ body {
   visibility: hidden;
   font-size: 100px;
 }
+#dprobe {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  visibility: hidden;
+  white-space: nowrap;
+  font-size: 100px;
+  font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
 #ampm { font-size: 0.3em; margin-left: 0.15em; color: var(--muted); font-weight: 500; }
 #date { color: var(--muted); margin-top: 0.4em; font-size: 20px; }
 .bar { padding: 14px 0 18px; }
@@ -99,6 +108,7 @@ body {
   </div>
 </div>
 <span id="probe"></span>
+<span id="dprobe"></span>
 <script>
 (function () {
   var cfg = { h24: false, sec: true, theme: "", chime: false };
@@ -188,8 +198,10 @@ body {
   var elTime = document.getElementById("time");
   var elDate = document.getElementById("date");
   var elProbe = document.getElementById("probe");
-  var DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-  var MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+  var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var elDProbe = document.getElementById("dprobe");
+  function dateText(d) { return DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear(); }
 
   function pad(n) { return n < 10 ? "0" + n : "" + n; }
 
@@ -202,7 +214,12 @@ body {
     var maxH = window.innerHeight * 0.55;
     if (size > maxH) { size = maxH; }
     elTime.style.fontSize = size + "px";
-    elDate.style.fontSize = Math.max(18, Math.min(size * 0.2, 44)) + "px";
+    // Fit the date to the width of the clock digits (one line)
+    elDProbe.textContent = "Wed, 30 Sep 2026";
+    var dw = elDProbe.offsetWidth || 1;
+    var clockW = w * size / 100;
+    var dsize = Math.min(100 * clockW / dw, size * 0.3);
+    elDate.style.fontSize = Math.max(14, dsize) + "px";
   }
 
   function tick() {
@@ -218,7 +235,7 @@ body {
     }
     var t = h + ":" + pad(d.getMinutes()) + (cfg.sec ? ":" + pad(d.getSeconds()) : "");
     elTime.innerHTML = t + (suffix ? '<span id="ampm">' + suffix + "</span>" : "");
-    elDate.textContent = DAYS[d.getDay()] + ", " + d.getDate() + " " + MONTHS[d.getMonth()] + " " + d.getFullYear();
+    elDate.textContent = dateText(d);
     checkChime(d);
   }
 
