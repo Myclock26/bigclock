@@ -214,11 +214,11 @@ body {
     var maxH = window.innerHeight * 0.55;
     if (size > maxH) { size = maxH; }
     elTime.style.fontSize = size + "px";
-    // Fit the date to the width of the clock digits (one line)
+    // Date size = 70% of the clock font size, but never wider than the screen
     elDProbe.textContent = "Wed, 30 Sep 2026";
     var dw = elDProbe.offsetWidth || 1;
-    var clockW = w * size / 100;
-    var dsize = Math.min(100 * clockW / dw, size * 0.3);
+    var maxDateW = window.innerWidth * 0.94;
+    var dsize = Math.min(size * 0.7, 100 * maxDateW / dw);
     elDate.style.fontSize = Math.max(14, dsize) + "px";
   }
 
